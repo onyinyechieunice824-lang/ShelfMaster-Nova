@@ -2,16 +2,9 @@
 import { Product, Transaction, User, ShopSettings, CartItem, ProductUnit, Shift, Customer, AuditLog, ParkedCart } from '../types';
 import { INITIAL_PRODUCTS, INITIAL_USERS, INITIAL_SETTINGS } from '../constants';
 
-// Safe Env Access with Fallback to Production URL
-const getApiUrl = () => {
-    if (typeof import.meta !== 'undefined' && (import.meta as any).env && (import.meta as any).env.VITE_API_URL) {
-        return (import.meta as any).env.VITE_API_URL;
-    }
-    // Hardcoded Fallback to your Render URL
-    return 'https://shelfmaster-nova.onrender.com/api';
-};
+// Direct connection to your Render Backend
+const API_URL = 'https://shelfmaster-nova.onrender.com/api';
 
-const API_URL = getApiUrl();
 let IS_DEMO_MODE = false; // Flag to track if we've fallen back to local demo mode
 
 const getHeaders = () => {
@@ -29,16 +22,31 @@ const apiFetch = async (endpoint: string, options?: RequestInit) => {
             ...options,
             headers: { ...getHeaders(), ...options?.headers }
         });
-        if (!res.ok) throw new Error(`API Error: ${res.status}`);
+        
+        if (!res.ok) {
+            // Handle specific HTTP errors
+            if (res.status === 401 || res.status === 403) {
+                 throw new Error("Unauthorized");
+            }
+            throw new Error(`API Error: ${res.status}`);
+        }
+        
         IS_DEMO_MODE = false;
         return await res.json();
     } catch (e) {
-        // Automatically switch to demo mode on first failure
+        console.warn(`API Connection failed (${endpoint}). Switching to Offline/Demo Mode. Error: ${e}`);
+        
+        // If it's a login attempt, don't automatically enable demo mode permanently, just throw
+        if (endpoint === '/login' && !IS_DEMO_MODE) {
+             // Let the login function handle the fallback logic explicitly
+             throw e;
+        }
+
+        // For other endpoints, enable demo mode
         if (!IS_DEMO_MODE) {
-            console.warn(`API Connection failed (${endpoint}). Switching to Offline/Demo Mode.`);
             IS_DEMO_MODE = true;
         }
-        throw e; // Re-throw to be handled by specific methods
+        throw e; // Re-throw to be handled by specific methods (which will catch and use local data)
     }
 };
 
@@ -251,7 +259,9 @@ export const StorageService = {
           return res.user;
       } catch (e) {
           // DEMO LOGIN FALLBACK
-          console.warn("API Login failed, trying local demo users...");
+          console.warn("API Login failed, trying local demo users...", e);
+          
+          // Verify against local data if API fails
           const users = getLocal('users', INITIAL_USERS);
           const user = users.find((u: User) => u.username === username);
           
