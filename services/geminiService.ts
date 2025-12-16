@@ -1,13 +1,28 @@
+
 import { GoogleGenAI } from '@google/genai';
 import { Transaction, Product } from '../types';
 
+// Safe environment variable access for Vite/Browser
+const getApiKey = () => {
+    if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
+        return (import.meta as any).env.VITE_GEMINI_API_KEY;
+    }
+    // Fallback if process is defined (unlikely in pure browser but good for consistency)
+    if (typeof process !== 'undefined' && process.env) {
+        return process.env.API_KEY;
+    }
+    return '';
+};
+
 export const analyzeSalesWithGemini = async (transactions: Transaction[], products: Product[]) => {
-  if (!process.env.API_KEY) {
-    console.warn("No API Key found for Gemini");
-    return "API Key missing. Please configure the environment.";
+  const apiKey = getApiKey();
+  
+  if (!apiKey) {
+    console.warn("No API Key found for Gemini. Set VITE_GEMINI_API_KEY in .env");
+    return "AI Insights Unavailable: Missing API Key. Please configure VITE_GEMINI_API_KEY in your environment variables.";
   }
 
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey });
 
   // Prepare data summary to reduce token usage
   const totalSales = transactions.reduce((acc, t) => acc + t.total, 0);

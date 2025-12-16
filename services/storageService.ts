@@ -2,8 +2,16 @@
 import { Product, Transaction, User, ShopSettings, CartItem, ProductUnit, Shift, Customer, AuditLog, ParkedCart } from '../types';
 import { INITIAL_PRODUCTS, INITIAL_USERS, INITIAL_SETTINGS } from '../constants';
 
-// Set this in your Vercel Environment Variables
-const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3000/api';
+// Safe Env Access
+const getApiUrl = () => {
+    if (typeof import.meta !== 'undefined' && (import.meta as any).env && (import.meta as any).env.VITE_API_URL) {
+        return (import.meta as any).env.VITE_API_URL;
+    }
+    return 'http://localhost:3000/api';
+};
+
+const API_URL = getApiUrl();
+let IS_DEMO_MODE = false; // Flag to track if we've fallen back to local demo mode
 
 const getHeaders = () => {
     const token = localStorage.getItem('pos_token');
@@ -11,6 +19,35 @@ const getHeaders = () => {
         'Content-Type': 'application/json',
         'Authorization': token ? `Bearer ${token}` : ''
     };
+};
+
+// HELPER: Fallback to LocalStorage if API fails
+const apiFetch = async (endpoint: string, options?: RequestInit) => {
+    try {
+        const res = await fetch(`${API_URL}${endpoint}`, {
+            ...options,
+            headers: { ...getHeaders(), ...options?.headers }
+        });
+        if (!res.ok) throw new Error(`API Error: ${res.status}`);
+        IS_DEMO_MODE = false;
+        return await res.json();
+    } catch (e) {
+        // Automatically switch to demo mode on first failure
+        if (!IS_DEMO_MODE) {
+            console.warn(`API Connection failed (${endpoint}). Switching to Offline/Demo Mode.`);
+            IS_DEMO_MODE = true;
+        }
+        throw e; // Re-throw to be handled by specific methods
+    }
+};
+
+// --- Local Storage Helpers for Demo Mode ---
+const getLocal = (key: string, defaultVal: any) => {
+    const data = localStorage.getItem(`demo_${key}`);
+    return data ? JSON.parse(data) : defaultVal;
+};
+const setLocal = (key: string, data: any) => {
+    localStorage.setItem(`demo_${key}`, JSON.stringify(data));
 };
 
 export const StorageService = {
@@ -26,12 +63,9 @@ export const StorageService = {
   // --- Products ---
   getProducts: async (): Promise<Product[]> => {
     try {
-        const res = await fetch(`${API_URL}/products`, { headers: getHeaders() });
-        if (!res.ok) throw new Error('Failed to fetch products');
-        return await res.json();
+        return await apiFetch('/products');
     } catch (e) {
-        console.error(e);
-        return [];
+        return getLocal('products', INITIAL_PRODUCTS);
     }
   },
 
@@ -50,43 +84,55 @@ export const StorageService = {
   },
 
   saveProduct: async (product: Product, user?: User) => {
-    await fetch(`${API_URL}/products`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify(product)
-    });
-    
-    if (user && product.id) {
-       // Ideally fetch old product to compare, simplified here
-       // Audit log logic moved to server or kept here
+    try {
+        await apiFetch('/products', { method: 'POST', body: JSON.stringify(product) });
+    } catch (e) {
+        const products = getLocal('products', INITIAL_PRODUCTS);
+        const index = products.findIndex((p: Product) => p.id === product.id);
+        if (index >= 0) products[index] = product;
+        else products.push(product);
+        setLocal('products', products);
     }
   },
 
   deleteProduct: async (id: string, user?: User) => {
-    await fetch(`${API_URL}/products/${id}`, {
-        method: 'DELETE',
-        headers: getHeaders()
-    });
+    try {
+        await apiFetch(`/products/${id}`, { method: 'DELETE' });
+    } catch (e) {
+        const products = getLocal('products', INITIAL_PRODUCTS).filter((p: Product) => p.id !== id);
+        setLocal('products', products);
+    }
   },
 
   // --- Transactions ---
   getTransactions: async (): Promise<Transaction[]> => {
     try {
-        const res = await fetch(`${API_URL}/transactions`, { headers: getHeaders() });
-        return await res.json();
-    } catch (e) { return []; }
+        return await apiFetch('/transactions');
+    } catch (e) {
+        return getLocal('transactions', []);
+    }
   },
 
   saveTransaction: async (transaction: Transaction) => {
-    await fetch(`${API_URL}/transactions`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify(transaction)
-    });
+    try {
+        await apiFetch('/transactions', { method: 'POST', body: JSON.stringify(transaction) });
+    } catch (e) {
+        const txs = getLocal('transactions', []);
+        txs.unshift(transaction); // Add to top
+        setLocal('transactions', txs);
 
-    // Handle shift update logic on client or server? 
-    // Ideally Server, but keeping logic here requires fetching shift first.
-    // We will let the server handle inventory, but Shift sales update we do here for now to match UI expectations
+        // Update Stock Locally
+        const products = getLocal('products', INITIAL_PRODUCTS);
+        transaction.items.forEach((item) => {
+            const pIndex = products.findIndex((p: Product) => p.id === item.productId);
+            if (pIndex >= 0) {
+                products[pIndex].quantity -= item.quantity;
+            }
+        });
+        setLocal('products', products);
+    }
+
+    // Update Shift Sales
     const activeShift = await StorageService.getActiveShift(transaction.cashierId);
     if (activeShift) {
         const cashPayment = transaction.payments.find(p => p.method === 'CASH')?.amount || 0;
@@ -95,8 +141,6 @@ export const StorageService = {
   },
 
   refundTransaction: async (tx: Transaction, user: User) => {
-      // Backend should have a refund endpoint, reusing update for now implies logic complexity
-      // For this migration, we won't fully implement refund logic on backend in this snippet
       console.warn("Refund backend logic requires endpoint implementation");
   },
 
@@ -105,10 +149,10 @@ export const StorageService = {
     localStorage.setItem('pos_cart_backup', JSON.stringify(cart));
   },
   getCartState: (): CartItem[] => {
-    return JSON.parse(localStorage.getItem('pos_cart_backup') || '[]');
+    try { return JSON.parse(localStorage.getItem('pos_cart_backup') || '[]'); } catch { return []; }
   },
   getParkedCarts: (): ParkedCart[] => {
-      return JSON.parse(localStorage.getItem('pos_parked_carts') || '[]');
+      try { return JSON.parse(localStorage.getItem('pos_parked_carts') || '[]'); } catch { return []; }
   },
   saveParkedCart: (cart: ParkedCart) => {
       const carts = StorageService.getParkedCarts();
@@ -136,73 +180,93 @@ export const StorageService = {
   // --- Settings ---
   getSettings: async (): Promise<ShopSettings> => {
     try {
-        const res = await fetch(`${API_URL}/settings`, { headers: getHeaders() });
-        return await res.json();
-    } catch(e) { return INITIAL_SETTINGS; }
+        return await apiFetch('/settings');
+    } catch(e) { 
+        return getLocal('settings', INITIAL_SETTINGS); 
+    }
   },
 
   updateSettings: async (settings: ShopSettings) => {
-    await fetch(`${API_URL}/settings`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify(settings)
-    });
+    try {
+        await apiFetch('/settings', { method: 'POST', body: JSON.stringify(settings) });
+    } catch (e) {
+        setLocal('settings', settings);
+    }
   },
 
   // --- User Management ---
   getUsers: async (): Promise<User[]> => {
       try {
-          const res = await fetch(`${API_URL}/users`, { headers: getHeaders() });
-          return await res.json();
-      } catch (e) { return []; }
+          return await apiFetch('/users');
+      } catch (e) { 
+          return getLocal('users', INITIAL_USERS); 
+      }
   },
 
   saveUser: async (user: Partial<User>) => {
-      const res = await fetch(`${API_URL}/users`, {
-          method: 'POST',
-          headers: getHeaders(),
-          body: JSON.stringify(user)
-      });
-      if(!res.ok) throw new Error("Failed to save user");
-      return await res.json();
+      try {
+          return await apiFetch('/users', { method: 'POST', body: JSON.stringify(user) });
+      } catch (e) {
+          const users = getLocal('users', INITIAL_USERS);
+          if (user.id) {
+               // Update
+               const idx = users.findIndex((u: User) => u.id === user.id);
+               if(idx >= 0) users[idx] = { ...users[idx], ...user };
+          } else {
+              // Create
+              users.push({ ...user, id: StorageService.generateId(), isSuspended: false });
+          }
+          setLocal('users', users);
+          return user as User;
+      }
   },
 
   deleteUser: async (id: string) => {
-      await fetch(`${API_URL}/users/${id}`, {
-          method: 'DELETE',
-          headers: getHeaders()
-      });
+      try {
+          await apiFetch(`/users/${id}`, { method: 'DELETE' });
+      } catch (e) {
+          const users = getLocal('users', INITIAL_USERS).filter((u: User) => u.id !== id);
+          setLocal('users', users);
+      }
   },
 
   toggleUserSuspension: async (id: string, isSuspended: boolean) => {
-      await fetch(`${API_URL}/users/${id}/status`, {
-          method: 'PUT',
-          headers: getHeaders(),
-          body: JSON.stringify({ isSuspended })
-      });
+      try {
+          await apiFetch(`/users/${id}/status`, { method: 'PUT', body: JSON.stringify({ isSuspended }) });
+      } catch (e) {
+          const users = getLocal('users', INITIAL_USERS);
+          const idx = users.findIndex((u: User) => u.id === id);
+          if (idx >= 0) {
+              users[idx].isSuspended = isSuspended;
+              setLocal('users', users);
+          }
+      }
   },
   
   login: async (username: string, pin: string) => {
-      const res = await fetch(`${API_URL}/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, pin })
-      });
-      if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.error || 'Login failed');
+      try {
+          const res = await apiFetch('/login', { method: 'POST', body: JSON.stringify({ username, pin }) });
+          localStorage.setItem('pos_token', res.token);
+          return res.user;
+      } catch (e) {
+          // DEMO LOGIN FALLBACK
+          console.warn("API Login failed, trying local demo users...");
+          const users = getLocal('users', INITIAL_USERS);
+          const user = users.find((u: User) => u.username === username);
+          
+          if (!user) throw new Error('Invalid credentials');
+          if (user.pin !== pin) throw new Error('Invalid credentials');
+          if (user.isSuspended) throw new Error('Account Suspended');
+          
+          return user;
       }
-      const data = await res.json();
-      localStorage.setItem('pos_token', data.token);
-      return data.user;
   },
 
   // --- Shifts ---
   getShifts: async (): Promise<Shift[]> => {
     try {
-        const res = await fetch(`${API_URL}/shifts`, { headers: getHeaders() });
-        return await res.json();
-    } catch(e) { return []; }
+        return await apiFetch('/shifts');
+    } catch(e) { return getLocal('shifts', []); }
   },
 
   getActiveShift: async (userId: string): Promise<Shift | undefined> => {
@@ -212,29 +276,37 @@ export const StorageService = {
 
   startShift: async (userId: string, userName: string, startCash: number) => {
       const newShift = {
+          id: StorageService.generateId(),
           userId,
           userName,
           startTime: new Date().toISOString(),
           startCash,
           expectedCash: startCash
       };
-      await fetch(`${API_URL}/shifts`, {
-          method: 'POST',
-          headers: getHeaders(),
-          body: JSON.stringify(newShift)
-      });
+      try {
+        await apiFetch('/shifts', { method: 'POST', body: JSON.stringify(newShift) });
+      } catch (e) {
+          const shifts = getLocal('shifts', []);
+          shifts.push(newShift);
+          setLocal('shifts', shifts);
+      }
   },
 
   updateShiftSales: async (shiftId: string, cashAmount: number) => {
-      const shifts = await StorageService.getShifts();
-      const shift = shifts.find(s => s.id === shiftId);
-      if (shift) {
-          const newExpected = (shift.expectedCash || 0) + cashAmount;
-          await fetch(`${API_URL}/shifts/${shiftId}`, {
-              method: 'PUT',
-              headers: getHeaders(),
-              body: JSON.stringify({ expectedCash: newExpected })
-          });
+      try {
+          const shifts = await StorageService.getShifts();
+          const shift = shifts.find(s => s.id === shiftId);
+          if(shift) {
+            const newExpected = (shift.expectedCash || 0) + cashAmount;
+            await apiFetch(`/shifts/${shiftId}`, { method: 'PUT', body: JSON.stringify({ expectedCash: newExpected }) });
+          }
+      } catch (e) {
+          const shifts = getLocal('shifts', []);
+          const idx = shifts.findIndex((s: Shift) => s.id === shiftId);
+          if (idx >= 0) {
+              shifts[idx].expectedCash = (shifts[idx].expectedCash || 0) + cashAmount;
+              setLocal('shifts', shifts);
+          }
       }
   },
 
@@ -243,48 +315,58 @@ export const StorageService = {
       const shift = shifts.find(s => s.id === shiftId);
       if(shift) {
           const difference = endCash - (shift.expectedCash || 0);
-          await fetch(`${API_URL}/shifts/${shiftId}`, {
-              method: 'PUT',
-              headers: getHeaders(),
-              body: JSON.stringify({
-                  endTime: new Date().toISOString(),
-                  endCash,
-                  notes,
-                  difference
-              })
-          });
+          const updateData = {
+              endTime: new Date().toISOString(),
+              endCash,
+              notes,
+              difference
+          };
+          try {
+              await apiFetch(`/shifts/${shiftId}`, { method: 'PUT', body: JSON.stringify(updateData) });
+          } catch(e) {
+              const localShifts = getLocal('shifts', []);
+              const idx = localShifts.findIndex((s: Shift) => s.id === shiftId);
+              if (idx >= 0) {
+                  localShifts[idx] = { ...localShifts[idx], ...updateData };
+                  setLocal('shifts', localShifts);
+              }
+          }
       }
   },
 
   // --- Customers ---
   getCustomers: async (): Promise<Customer[]> => {
       try {
-        const res = await fetch(`${API_URL}/customers`, { headers: getHeaders() });
-        return await res.json();
-      } catch(e) { return []; }
+        return await apiFetch('/customers');
+      } catch(e) { return getLocal('customers', []); }
   },
 
   saveCustomer: async (customer: Customer) => {
-      await fetch(`${API_URL}/customers`, {
-          method: 'POST',
-          headers: getHeaders(),
-          body: JSON.stringify(customer)
-      });
+      try {
+          await apiFetch('/customers', { method: 'POST', body: JSON.stringify(customer) });
+      } catch (e) {
+          const customers = getLocal('customers', []);
+          const idx = customers.findIndex((c: Customer) => c.id === customer.id);
+          if (idx >= 0) customers[idx] = customer;
+          else customers.push(customer);
+          setLocal('customers', customers);
+      }
   },
 
   // --- Audit ---
   getAuditLogs: async (): Promise<AuditLog[]> => {
       try {
-        const res = await fetch(`${API_URL}/logs`, { headers: getHeaders() });
-        return await res.json();
-      } catch (e) { return []; }
+        return await apiFetch('/logs');
+      } catch (e) { return getLocal('logs', []); }
   },
 
   logAudit: async (log: AuditLog) => {
-      await fetch(`${API_URL}/logs`, {
-          method: 'POST',
-          headers: getHeaders(),
-          body: JSON.stringify(log)
-      });
+      try {
+        await apiFetch('/logs', { method: 'POST', body: JSON.stringify(log) });
+      } catch(e) {
+          const logs = getLocal('logs', []);
+          logs.unshift(log);
+          setLocal('logs', logs);
+      }
   }
 };

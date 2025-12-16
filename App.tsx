@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Login from './components/Login';
 import Layout from './components/Layout';
@@ -7,9 +8,14 @@ const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
-    const savedUser = localStorage.getItem('pos_current_user');
-    if (savedUser) {
-      setUser(JSON.parse(savedUser));
+    try {
+        const savedUser = localStorage.getItem('pos_current_user');
+        if (savedUser) {
+          setUser(JSON.parse(savedUser));
+        }
+    } catch (e) {
+        console.warn("Corrupt user data in local storage, clearing...");
+        localStorage.removeItem('pos_current_user');
     }
   }, []);
 
