@@ -1,43 +1,36 @@
-// schema.prisma
+// prisma/schema.prisma
 
-// --- Datasource ---
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL") // Reads DATABASE_URL from your .env
+  url      = env("DATABASE_URL")
 }
 
-// --- Generator ---
 generator client {
   provider = "prisma-client-js"
 }
 
-// --- Models ---
 model User {
-  id          Int      @id @default(autoincrement())
+  id          String   @id @default(cuid())
   name        String
   username    String   @unique
   role        String
   pin         String
   isSuspended Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
 }
 
 model Product {
-  id          Int       @id @default(autoincrement())
+  id          String       @id @default(cuid())
   name        String
   description String?
-  quantity    Int       @default(0)
+  quantity    Int          @default(0)
   batches     Batch[]
   units       ProductUnit[]
   priceHistory PriceHistory[]
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
 }
 
 model Batch {
-  id          Int      @id @default(autoincrement())
-  productId   Int
+  id          String   @id @default(cuid())
+  productId   String
   batchNumber String
   expiryDate  DateTime
   quantity    Int
@@ -45,19 +38,19 @@ model Batch {
 }
 
 model ProductUnit {
-  id        Int     @id @default(autoincrement())
-  productId Int
+  id        String   @id @default(cuid())
+  productId String
   name      String
-  multiplier Float
+  multiplier Int
   barcode   String?
   price     Float
-  product   Product @relation(fields: [productId], references: [id])
+  product   Product  @relation(fields: [productId], references: [id])
 }
 
 model PriceHistory {
-  id        Int      @id @default(autoincrement())
-  productId Int
-  date      DateTime @default(now())
+  id        String   @id @default(cuid())
+  productId String
+  date      DateTime
   oldPrice  Float
   newPrice  Float
   changedBy String
@@ -65,66 +58,67 @@ model PriceHistory {
 }
 
 model Transaction {
-  id       Int       @id @default(autoincrement())
-  date     DateTime  @default(now())
-  items    TransactionItem[]
+  id     String    @id @default(cuid())
+  date   DateTime  @default(now())
+  items  TransactionItem[]
   payments Payment[]
   isTraining Boolean @default(false)
 }
 
 model TransactionItem {
-  id           Int         @id @default(autoincrement())
-  transactionId Int
-  productId    Int
-  quantity     Int
-  transaction  Transaction @relation(fields: [transactionId], references: [id])
+  id          String  @id @default(cuid())
+  transactionId String
+  productId   String
+  quantity    Int
+  transaction Transaction @relation(fields: [transactionId], references: [id])
 }
 
 model Payment {
-  id           Int         @id @default(autoincrement())
-  transactionId Int
-  method       String
-  amount       Float
-  transaction  Transaction @relation(fields: [transactionId], references: [id])
+  id            String @id @default(cuid())
+  transactionId String
+  amount        Float
+  method        String
+  transaction   Transaction @relation(fields: [transactionId], references: [id])
 }
 
 model Shift {
-  id        Int      @id @default(autoincrement())
-  name      String
-  startTime DateTime
-  endTime   DateTime
+  id    String @id @default(cuid())
+  name  String
+  start DateTime
+  end   DateTime
 }
 
 model Customer {
-  id        Int      @id @default(autoincrement())
-  name      String
-  phone     String?
-  email     String?
+  id      String @id @default(cuid())
+  name    String
+  phone   String?
+  email   String?
 }
 
 model Settings {
-  id          String   @id
-  name        String
-  address     String
-  phone       String?
-  currency    String
-  taxRate     Float
+  id           String   @id
+  name         String
+  address      String
+  phone        String
+  currency     String
+  taxRate      Float
   receiptFooter String
-  branches    Branch[]
+  branches     Branch[]
 }
 
 model Branch {
-  id         Int      @id @default(autoincrement())
-  settingsId String
+  id         String   @id @default(cuid())
   name       String
   address    String
+  settingsId String
   settings   Settings @relation(fields: [settingsId], references: [id])
 }
 
 model AuditLog {
-  id       Int      @id @default(autoincrement())
-  date     DateTime @default(now())
-  userId   Int?
-  action   String
-  details  String?
+  id     String   @id @default(cuid())
+  date   DateTime @default(now())
+  action String
+  userId String?
+  details String?
 }
+
