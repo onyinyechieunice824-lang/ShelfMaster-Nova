@@ -1,20 +1,19 @@
-// prisma/schema.prisma
+// schema.prisma
 
-// --- Datasource (Supabase PostgreSQL) ---
+// --- Datasource ---
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL") // Prisma will read your DB connection string from env
+  url      = env("DATABASE_URL") // Reads DATABASE_URL from your .env
 }
 
-// --- Prisma Client Generator ---
+// --- Generator ---
 generator client {
   provider = "prisma-client-js"
 }
 
 // --- Models ---
-
 model User {
-  id          String   @id @default(cuid())
+  id          Int      @id @default(autoincrement())
   name        String
   username    String   @unique
   role        String
@@ -25,44 +24,107 @@ model User {
 }
 
 model Product {
-  id          String   @id @default(cuid())
+  id          Int       @id @default(autoincrement())
   name        String
+  description String?
+  quantity    Int       @default(0)
+  batches     Batch[]
+  units       ProductUnit[]
+  priceHistory PriceHistory[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Batch {
+  id          Int      @id @default(autoincrement())
+  productId   Int
+  batchNumber String
+  expiryDate  DateTime
   quantity    Int
-  price       Float
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  product     Product  @relation(fields: [productId], references: [id])
+}
+
+model ProductUnit {
+  id        Int     @id @default(autoincrement())
+  productId Int
+  name      String
+  multiplier Float
+  barcode   String?
+  price     Float
+  product   Product @relation(fields: [productId], references: [id])
+}
+
+model PriceHistory {
+  id        Int      @id @default(autoincrement())
+  productId Int
+  date      DateTime @default(now())
+  oldPrice  Float
+  newPrice  Float
+  changedBy String
+  product   Product  @relation(fields: [productId], references: [id])
 }
 
 model Transaction {
-  id        String   @id @default(cuid())
-  date      DateTime @default(now())
-  items     Json
-  payments  Json
-  createdAt DateTime @default(now())
+  id       Int       @id @default(autoincrement())
+  date     DateTime  @default(now())
+  items    TransactionItem[]
+  payments Payment[]
+  isTraining Boolean @default(false)
 }
 
-model Customer {
-  id        String   @id @default(cuid())
-  name      String
-  phone     String
-  createdAt DateTime @default(now())
+model TransactionItem {
+  id           Int         @id @default(autoincrement())
+  transactionId Int
+  productId    Int
+  quantity     Int
+  transaction  Transaction @relation(fields: [transactionId], references: [id])
+}
+
+model Payment {
+  id           Int         @id @default(autoincrement())
+  transactionId Int
+  method       String
+  amount       Float
+  transaction  Transaction @relation(fields: [transactionId], references: [id])
 }
 
 model Shift {
-  id        String   @id @default(cuid())
+  id        Int      @id @default(autoincrement())
   name      String
   startTime DateTime
   endTime   DateTime
-  createdAt DateTime @default(now())
+}
+
+model Customer {
+  id        Int      @id @default(autoincrement())
+  name      String
+  phone     String?
+  email     String?
 }
 
 model Settings {
-  id           String   @id
-  name         String
-  address      String
-  phone        String
-  currency     String
-  taxRate      Float
+  id          String   @id
+  name        String
+  address     String
+  phone       String?
+  currency    String
+  taxRate     Float
   receiptFooter String
-  branches     Json
+  branches    Branch[]
+}
+
+model Branch {
+  id         Int      @id @default(autoincrement())
+  settingsId String
+  name       String
+  address    String
+  settings   Settings @relation(fields: [settingsId], references: [id])
+}
+
+model AuditLog {
+  id       Int      @id @default(autoincrement())
+  date     DateTime @default(now())
+  userId   Int?
+  action   String
+  details  String?
 }
