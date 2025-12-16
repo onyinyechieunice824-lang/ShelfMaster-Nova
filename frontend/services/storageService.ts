@@ -1,10 +1,9 @@
 import { Product, Transaction, User, ShopSettings, CartItem, ProductUnit, Shift, Customer, AuditLog, ParkedCart } from '../types';
 import { INITIAL_PRODUCTS, INITIAL_USERS, INITIAL_SETTINGS } from '../constants';
 
-// Use relative path '/api'. 
-// In development, Vite proxy sends this to http://localhost:3000/api
-// In production, it goes to the same domain/host which is served by server.js
-const API_URL = '/api';
+// For Vercel deployment, we use the environment variable VITE_API_URL.
+// If not set, it falls back to '/api' which works with the Vite proxy in local dev.
+const API_URL = (import.meta as any).env?.VITE_API_URL || '/api';
 
 let IS_DEMO_MODE = false; // Flag to track if we've fallen back to local demo mode
 
@@ -19,7 +18,10 @@ const getHeaders = () => {
 // HELPER: Fallback to LocalStorage if API fails
 const apiFetch = async (endpoint: string, options?: RequestInit) => {
     try {
-        const res = await fetch(`${API_URL}${endpoint}`, {
+        // Ensure endpoint starts with / if API_URL doesn't end with one, or handle concatenation safely
+        const url = `${API_URL}${endpoint}`;
+        
+        const res = await fetch(url, {
             ...options,
             headers: { ...getHeaders(), ...options?.headers }
         });

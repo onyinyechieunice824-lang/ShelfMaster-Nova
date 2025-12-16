@@ -1,29 +1,18 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from "@google/genai";
 import { Transaction, Product } from '../types';
 
-// Safe environment variable access for Vite/Browser
-const getApiKey = () => {
-    if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
-        return (import.meta as any).env.VITE_GEMINI_API_KEY;
-    }
-    // Fallback if process is defined (unlikely in pure browser but good for consistency)
-    if (typeof process !== 'undefined' && process.env) {
-        return process.env.API_KEY;
-    }
-    return '';
-};
-
 export const analyzeSalesWithGemini = async (transactions: Transaction[], products: Product[]) => {
-  const apiKey = getApiKey();
+  // Use process.env.API_KEY as per coding guidelines
+  const apiKey = process.env.API_KEY;
   
   if (!apiKey) {
-    console.warn("No API Key found for Gemini. Set VITE_GEMINI_API_KEY in .env");
-    return "AI Insights Unavailable: Missing API Key. Please configure VITE_GEMINI_API_KEY in your environment variables.";
+    console.warn("No API Key found for Gemini. Ensure process.env.API_KEY is configured.");
+    return "AI Insights Unavailable: Missing API Key.";
   }
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  // Using gemini-1.5-flash which is widely supported by this SDK version
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const ai = new GoogleGenAI({ apiKey });
+  // Using gemini-2.5-flash for basic text tasks as per coding guidelines
+  const model = "gemini-2.5-flash";
 
   // Prepare data summary to reduce token usage
   const totalSales = transactions.reduce((acc, t) => acc + t.total, 0);
@@ -42,9 +31,11 @@ export const analyzeSalesWithGemini = async (transactions: Transaction[], produc
   `;
 
   try {
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    return response.text();
+    const response = await ai.models.generateContent({
+      model: model,
+      contents: prompt,
+    });
+    return response.text;
   } catch (error) {
     console.error("Gemini analysis failed:", error);
     return "Could not generate AI insights at this time.";
