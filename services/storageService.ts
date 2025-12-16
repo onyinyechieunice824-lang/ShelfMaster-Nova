@@ -2,8 +2,10 @@
 import { Product, Transaction, User, ShopSettings, CartItem, ProductUnit, Shift, Customer, AuditLog, ParkedCart } from '../types';
 import { INITIAL_PRODUCTS, INITIAL_USERS, INITIAL_SETTINGS } from '../constants';
 
-// Direct connection to your Render Backend
-const API_URL = 'https://shelfmaster-nova.onrender.com/api';
+// Use relative path '/api'. 
+// In development, Vite proxy sends this to http://localhost:3000/api
+// In production, it goes to the same domain/host which is served by server.js
+const API_URL = '/api';
 
 let IS_DEMO_MODE = false; // Flag to track if we've fallen back to local demo mode
 

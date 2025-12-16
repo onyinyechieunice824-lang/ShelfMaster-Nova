@@ -3,8 +3,13 @@ import cors from 'cors';
 import { PrismaClient } from '@prisma/client';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const prisma = new PrismaClient();
@@ -15,7 +20,6 @@ const SECRET_KEY = process.env.JWT_SECRET || 'secret-key';
 app.use(cors({
     origin: [
         'https://shelf-master-nova-6zda.vercel.app', 
-        'https://shelf-master-nova-6zda.vercel.app/',
         'http://localhost:5173', 
         'http://localhost:3000'
     ],
@@ -25,10 +29,8 @@ app.use(cors({
 
 app.use(express.json());
 
-// --- Health Check (Crucial for Render debugging) ---
-app.get('/', (req, res) => {
-    res.status(200).send('ShelfMaster Nova API is Running 🚀');
-});
+// Serve Static Frontend Files (Build Output)
+app.use(express.static(path.join(__dirname, 'dist')));
 
 // --- Middleware ---
 const authenticate = (req, res, next) => {
@@ -44,6 +46,12 @@ const authenticate = (req, res, next) => {
         res.sendStatus(401);
     }
 };
+
+// --- API Routes ---
+
+app.get('/api/health', (req, res) => {
+    res.status(200).send('ShelfMaster Nova API is Running 🚀');
+});
 
 // --- Auth ---
 app.post('/api/login', async (req, res) => {
@@ -283,6 +291,11 @@ app.post('/api/logs', authenticate, async (req, res) => {
         const log = await prisma.auditLog.create({ data: req.body });
         res.json(log);
     } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Catch-all for React Frontend
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
 // Seed Initial User if DB is empty
