@@ -1,0 +1,7 @@
+{
+  "name": "ShelfMaster Nova",
+  "description": "The ultimate AI-powered Point of Sale & Inventory solution for modern retail.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
