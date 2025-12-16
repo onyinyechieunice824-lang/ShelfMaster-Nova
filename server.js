@@ -1,10 +1,10 @@
+import express from 'express';
+import cors from 'cors';
+import { PrismaClient } from '@prisma/client';
+import jwt from 'jsonwebtoken';
+import dotenv from 'dotenv';
 
-const express = require('express');
-const cors = require('cors');
-const { PrismaClient } = require('@prisma/client');
-const jwt = require('jsonwebtoken');
-
-require('dotenv').config();
+dotenv.config();
 
 const app = express();
 const prisma = new PrismaClient();

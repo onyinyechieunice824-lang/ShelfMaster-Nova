@@ -5,7 +5,7 @@ services:
     env: node
     region: oregon
     plan: free
-    root: backend
+    root: .
     buildCommand: npm install && npx prisma generate
     startCommand: node server.js
     envVars:
