@@ -1,11 +1,10 @@
-
 services:
   - type: web
     name: shelfmaster-api
     env: node
     region: oregon
     plan: free
-    root: .
+    root: backend
     buildCommand: npm install && npx prisma generate
     startCommand: node server.js
     envVars:
