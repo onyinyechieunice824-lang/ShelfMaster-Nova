@@ -12,106 +12,114 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Initialize Supabase client
+// Supabase Client (SERVICE ROLE)
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// Helper function to check DB connection
-async function checkDbConnection(retries = 5) {
-  for (let i = 1; i <= retries; i++) {
-    try {
-      const { data, error } = await supabase.from("users").select("*").limit(1);
-      if (error) throw error;
-      console.log("✅ Database connection successful!");
-      return true;
-    } catch (err) {
-      console.error(`❌ Database connection failed (attempt ${i}/${retries}):`, err.message);
-      if (i < retries) {
-        console.log("⏳ Retrying in 3 seconds...");
-        await new Promise((res) => setTimeout(res, 3000));
-      } else {
-        console.error("🚨 Failed to connect to database after multiple attempts.");
-        process.exit(1);
-      }
-    }
-  }
-}
+// 🔍 Health check
+app.get("/", (req, res) => {
+  res.json({
+    status: "OK",
+    message: "ShelfMaster Nova API running 🚀",
+  });
+});
 
-// Routes
-
-// Get all users
+// 👤 Get all users
 app.get("/users", async (req, res) => {
-  try {
-    const { data, error } = await supabase.from("users").select("*");
-    if (error) throw error;
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  const { data, error } = await supabase
+    .from("users")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
   }
+
+  res.json(data);
 });
 
-// Get all products
+// 📦 Get all products
 app.get("/products", async (req, res) => {
-  try {
-    const { data, error } = await supabase.from("products").select("*");
-    if (error) throw error;
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  const { data, error } = await supabase
+    .from("products")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
   }
+
+  res.json(data);
 });
 
-// Get all categories
-app.get("/categories", async (req, res) => {
-  try {
-    const { data, error } = await supabase.from("categories").select("*");
-    if (error) throw error;
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+// ➕ Add product
+app.post("/products", async (req, res) => {
+  const { name, price, sku } = req.body;
+
+  if (!name || !price) {
+    return res.status(400).json({ error: "Name and price are required" });
   }
+
+  const { data, error } = await supabase
+    .from("products")
+    .insert([{ name, price, sku }])
+    .select()
+    .single();
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  res.status(201).json(data);
 });
 
-// Seed endpoint (optional)
-app.post("/seed", async (req, res) => {
-  try {
-    // Categories
-    const categories = [
-      { name: "Beverages", description: "Drinks and juices" },
-      { name: "Snacks", description: "Chips, cookies, and more" },
-      { name: "Electronics", description: "Gadgets and devices" },
-    ];
-    for (let cat of categories) await supabase.from("categories").insert(cat);
+// 📊 Inventory with product info
+app.get("/inventory", async (req, res) => {
+  const { data, error } = await supabase
+    .from("inventory")
+    .select(`
+      id,
+      quantity,
+      products (
+        id,
+        name,
+        price
+      )
+    `);
 
-    // Products
-    const products = [
-      { name: "Coca Cola", price: 1.5, stock: 100, category_id: 1 },
-      { name: "Pepsi", price: 1.4, stock: 80, category_id: 1 },
-      { name: "Lays Chips", price: 0.8, stock: 150, category_id: 2 },
-      { name: "Smartphone", price: 250, stock: 10, category_id: 3 },
-    ];
-    for (let prod of products) await supabase.from("products").insert(prod);
-
-    // Users
-    const users = [
-      { name: "Alice", email: "alice@example.com" },
-      { name: "Bob", email: "bob@example.com" },
-      { name: "Charlie", email: "charlie@example.com" },
-    ];
-    for (let user of users) await supabase.from("users").insert(user);
-
-    res.json({ message: "✅ Database seeded successfully!" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  if (error) {
+    return res.status(500).json({ error: error.message });
   }
+
+  res.json(data);
 });
 
-// Start server
-app.listen(PORT, async () => {
-  console.log(`Server running on port ${PORT}`);
-  await checkDbConnection();
+// 🧾 Create order
+app.post("/orders", async (req, res) => {
+  const { user_id, total_amount } = req.body;
+
+  if (!user_id || !total_amount) {
+    return res.status(400).json({ error: "Missing order data" });
+  }
+
+  const { data, error } = await supabase
+    .from("orders")
+    .insert([{ user_id, total_amount }])
+    .select()
+    .single();
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  res.status(201).json(data);
+});
+
+// 🚀 Start server
+app.listen(PORT, () => {
+  console.log(`✅ Server running on port ${PORT}`);
 });
 
 
