@@ -1,4 +1,3 @@
-
 const express = require('express');
 const cors = require('cors');
 const { PrismaClient } = require('@prisma/client');
@@ -11,7 +10,16 @@ const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3000;
 const SECRET_KEY = process.env.JWT_SECRET || 'secret-key';
 
-app.use(cors());
+// Allow your Vercel app and Localhost
+app.use(cors({
+    origin: [
+        'https://shelf-master-nova-6zda.vercel.app', 
+        'http://localhost:5173', 
+        'http://localhost:3000'
+    ],
+    credentials: true
+}));
+
 app.use(express.json());
 
 // --- Middleware ---
@@ -34,19 +42,12 @@ app.post('/api/login', async (req, res) => {
     const { username, pin } = req.body;
     try {
         const user = await prisma.user.findUnique({ where: { username } });
-        
-        if (!user) {
+        if (!user || user.pin !== pin) {
             return res.status(401).json({ error: "Invalid credentials" });
         }
-
-        if (user.pin !== pin) {
-             return res.status(401).json({ error: "Invalid credentials" });
-        }
-
         if (user.isSuspended) {
             return res.status(403).json({ error: "Account Suspended. Contact Administrator." });
         }
-
         const token = jwt.sign({ id: user.id, role: user.role }, SECRET_KEY);
         res.json({ user, token });
     } catch (e) {
@@ -54,7 +55,7 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// --- User Management (Admin Only ideally, but role check done in frontend for MVP) ---
+// --- User Management ---
 app.get('/api/users', authenticate, async (req, res) => {
     const users = await prisma.user.findMany();
     res.json(users);
@@ -99,7 +100,6 @@ app.put('/api/users/:id/status', authenticate, async (req, res) => {
     }
 });
 
-
 // --- Products ---
 app.get('/api/products', authenticate, async (req, res) => {
     const products = await prisma.product.findMany();
@@ -107,10 +107,11 @@ app.get('/api/products', authenticate, async (req, res) => {
 });
 
 app.post('/api/products', authenticate, async (req, res) => {
+    const { batches, units, priceHistory, ...rest } = req.body;
     const product = await prisma.product.upsert({
         where: { id: req.body.id || 'new' },
-        update: req.body,
-        create: req.body
+        update: { ...rest, batches: batches || [], units: units || [], priceHistory: priceHistory || [] },
+        create: { ...rest, batches: batches || [], units: units || [], priceHistory: priceHistory || [] }
     });
     res.json(product);
 });
@@ -120,26 +121,19 @@ app.delete('/api/products/:id', authenticate, async (req, res) => {
     res.json({ success: true });
 });
 
-// --- Transactions & Inventory Update ---
+// --- Transactions ---
 app.get('/api/transactions', authenticate, async (req, res) => {
     const transactions = await prisma.transaction.findMany({ orderBy: { date: 'desc' } });
     res.json(transactions);
 });
 
 app.post('/api/transactions', authenticate, async (req, res) => {
-    const tx = req.body;
-    
-    // 1. Save Transaction
-    const savedTx = await prisma.transaction.create({ data: tx });
-
-    // 2. Update Inventory (Simplified Logic for Backend)
-    // In a real app, use a transaction block
-    if (!tx.isTraining) {
-        for (const item of tx.items) {
+    const { items, payments, ...txData } = req.body;
+    const savedTx = await prisma.transaction.create({ data: { ...txData, items, payments } });
+    if (!txData.isTraining) {
+        for (const item of items) {
             const product = await prisma.product.findUnique({ where: { id: item.productId } });
             if (product) {
-                // Logic to update batches/quantity would go here
-                // For now, we update the main quantity
                 await prisma.product.update({
                     where: { id: item.productId },
                     data: { quantity: { decrement: item.quantity } }
@@ -147,7 +141,6 @@ app.post('/api/transactions', authenticate, async (req, res) => {
             }
         }
     }
-
     res.json(savedTx);
 });
 
@@ -163,10 +156,7 @@ app.post('/api/shifts', authenticate, async (req, res) => {
 });
 
 app.put('/api/shifts/:id', authenticate, async (req, res) => {
-    const shift = await prisma.shift.update({
-        where: { id: req.params.id },
-        data: req.body
-    });
+    const shift = await prisma.shift.update({ where: { id: req.params.id }, data: req.body });
     res.json(shift);
 });
 
@@ -189,7 +179,6 @@ app.post('/api/customers', authenticate, async (req, res) => {
 app.get('/api/settings', authenticate, async (req, res) => {
     let settings = await prisma.settings.findUnique({ where: { id: 'settings' } });
     if (!settings) {
-        // Return default if not found
         settings = {
             id: 'settings',
             name: 'ShelfMaster Store',
@@ -205,20 +194,18 @@ app.get('/api/settings', authenticate, async (req, res) => {
 });
 
 app.post('/api/settings', authenticate, async (req, res) => {
+    const { branches, ...rest } = req.body;
     const settings = await prisma.settings.upsert({
         where: { id: 'settings' },
-        update: req.body,
-        create: { ...req.body, id: 'settings' }
+        update: { ...rest, branches: branches || [] },
+        create: { ...rest, branches: branches || [], id: 'settings' }
     });
     res.json(settings);
 });
 
 // --- Audit Logs ---
 app.get('/api/logs', authenticate, async (req, res) => {
-    const logs = await prisma.auditLog.findMany({ 
-        orderBy: { date: 'desc' },
-        take: 1000 
-    });
+    const logs = await prisma.auditLog.findMany({ orderBy: { date: 'desc' }, take: 1000 });
     res.json(logs);
 });
 
@@ -227,23 +214,23 @@ app.post('/api/logs', authenticate, async (req, res) => {
     res.json(log);
 });
 
-// Seed Initial User if DB is empty
+// Seed initial admin user
 const seed = async () => {
     const count = await prisma.user.count();
     if (count === 0) {
         await prisma.user.create({
-            data: {
-                name: 'Admin User',
-                username: 'admin',
-                role: 'ADMIN',
-                pin: '1234'
-            }
+            data: { name: 'Admin User', username: 'admin', role: 'ADMIN', pin: '1234' }
         });
         console.log("Seeded Admin User");
     }
 };
 seed();
 
+// Gracefully close Prisma on exit (Render-friendly)
+process.on('SIGINT', async () => { await prisma.$disconnect(); process.exit(); });
+process.on('SIGTERM', async () => { await prisma.$disconnect(); process.exit(); });
+
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
+

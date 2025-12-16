@@ -2,12 +2,13 @@
 import { Product, Transaction, User, ShopSettings, CartItem, ProductUnit, Shift, Customer, AuditLog, ParkedCart } from '../types';
 import { INITIAL_PRODUCTS, INITIAL_USERS, INITIAL_SETTINGS } from '../constants';
 
-// Safe Env Access
+// Safe Env Access with Fallback to Production URL
 const getApiUrl = () => {
     if (typeof import.meta !== 'undefined' && (import.meta as any).env && (import.meta as any).env.VITE_API_URL) {
         return (import.meta as any).env.VITE_API_URL;
     }
-    return 'http://localhost:3000/api';
+    // Hardcoded Fallback to your Render URL
+    return 'https://shelfmaster-nova.onrender.com/api';
 };
 
 const API_URL = getApiUrl();
