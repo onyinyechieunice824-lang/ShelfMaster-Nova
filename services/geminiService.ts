@@ -1,5 +1,5 @@
 
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { Transaction, Product } from '../types';
 
 // Safe environment variable access for Vite/Browser
@@ -22,7 +22,9 @@ export const analyzeSalesWithGemini = async (transactions: Transaction[], produc
     return "AI Insights Unavailable: Missing API Key. Please configure VITE_GEMINI_API_KEY in your environment variables.";
   }
 
-  const ai = new GoogleGenAI({ apiKey });
+  const genAI = new GoogleGenerativeAI(apiKey);
+  // Using gemini-1.5-flash which is widely supported by this SDK version
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
   // Prepare data summary to reduce token usage
   const totalSales = transactions.reduce((acc, t) => acc + t.total, 0);
@@ -41,11 +43,9 @@ export const analyzeSalesWithGemini = async (transactions: Transaction[], produc
   `;
 
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-    });
-    return response.text;
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    return response.text();
   } catch (error) {
     console.error("Gemini analysis failed:", error);
     return "Could not generate AI insights at this time.";
